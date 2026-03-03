@@ -54,7 +54,7 @@ def query_base_municipios(conn, flt: dict) -> pd.DataFrame:
         join dim_regiao r    on r.id_regiao = uf.id_regiao
         where {' and '.join(where)}
         """,
-        params=params, ttl="10m",
+        params=params, ttl="1h",
     )
 
 
@@ -72,7 +72,7 @@ def query_pib_uf(conn, flt: dict) -> pd.DataFrame:
         group by uf.sigla_uf
         order by uf.sigla_uf
         """,
-        params=params, ttl="10m",
+        params=params, ttl="1h",
     )
 
 
@@ -86,7 +86,7 @@ def query_sanity_counts(conn) -> pd.DataFrame:
           (select count(*) from dim_variavel)            as n_variavel,
           (select count(*) from fato_indicador_municipio) as n_fato
         """,
-        ttl="10m",
+        ttl="1h",
     )
 
 

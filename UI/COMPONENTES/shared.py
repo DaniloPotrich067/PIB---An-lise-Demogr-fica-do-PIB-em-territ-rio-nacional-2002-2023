@@ -27,23 +27,23 @@ def asset_path(*parts: str) -> str:
     return str(ui_root().joinpath("assets", *parts))
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def load_dims(_conn):
     regs = _conn.query(
         "select id_regiao, sigla_regiao, nome_regiao from dim_regiao order by id_regiao;",
-        ttl="1h",
+        ttl="24h",
     )
     ufs = _conn.query(
         "select id_uf, sigla_uf, nome_uf, id_regiao from dim_uf order by sigla_uf;",
-        ttl="1h",
+        ttl="24h",
     )
     vars_ = _conn.query(
         "select id_variavel, nome_variavel, unidade from dim_variavel order by nome_variavel;",
-        ttl="1h",
+        ttl="24h",
     )
     anos = _conn.query(
         "select distinct ano from fato_indicador_municipio order by ano;",
-        ttl="1h",
+        ttl="24h",
     )["ano"].tolist()
 
     return regs, ufs, vars_, anos
