@@ -1,7 +1,7 @@
 streamlit==1.54.0
 pandas==2.3.3
 plotly==5.23.0
-sqlalchemy==2.1.1
+sqlalchemy==2.0.48
 psycopg2-binary==2.9.11
 requests==2.32.5
 pytz==2026.1.post1
