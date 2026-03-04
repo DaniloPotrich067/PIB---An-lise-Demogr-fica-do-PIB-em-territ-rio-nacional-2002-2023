@@ -38,39 +38,61 @@ def _where_params_mart(flt: dict, uf_col: str = "v.sigla_uf", reg_col: str = "v.
 # ── Queries originais ─────────────────────────────────────────────────────────
 
 def query_base_municipios(conn, flt: dict) -> pd.DataFrame:
-    where, params = _where_params_base(flt)
+    """Busca bruta de PIB por município — usa view mart.pib_por_municipio (PRÉ-MATERIALIZADA).
+    
+    ANTES: 4 JOINs + filtros em runtime → LENTO
+    DEPOIS: SELECT na view pré-processada → RÁPIDO (+ índices)
+    """
+    where  = ["pib.ano = :ano"]
+    params = {"ano": flt["ano"]}
+
+    if flt.get("id_regiao") is not None:
+        where.append("pib.id_regiao = :id_regiao")
+        params["id_regiao"] = flt["id_regiao"]
+
+    if flt.get("ufs"):
+        ph = sql_in_params("uf", flt["ufs"], params)
+        where.append(f"pib.sigla_uf in ({ph})")
 
     if flt.get("cidade"):
-        where.append("m.nome_municipio ilike :cidade")
+        where.append("pib.nome_municipio ilike :cidade")
         params["cidade"] = f"%{flt['cidade']}%"
 
     return conn.query(
         f"""
-        select r.sigla_regiao, uf.sigla_uf, m.id_municipio,
-               m.nome_municipio, f.valor
-        from fato_indicador_municipio f
-        join dim_municipio m on m.id_municipio = f.id_municipio
-        join dim_uf uf       on uf.id_uf = m.id_uf
-        join dim_regiao r    on r.id_regiao = uf.id_regiao
+        select pib.sigla_regiao, pib.sigla_uf, pib.id_municipio,
+               pib.nome_municipio, pib.pib as valor
+        from mart.pib_por_municipio pib
         where {' and '.join(where)}
+        order by pib.pib desc
         """,
         params=params, ttl="1h",
     )
 
 
 def query_pib_uf(conn, flt: dict) -> pd.DataFrame:
-    where, params = _where_params_base(flt)
+    """PIB agregado por UF — usa view mart.pib_por_uf_ano (JÁ AGREGADA).
+    
+    ANTES: GROUP BY em runtime → LENTO
+    DEPOIS: Leitura direta de view materializada → RÁPIDO
+    """
+    where  = ["pib_uf.ano = :ano"]
+    params = {"ano": flt["ano"]}
+
+    if flt.get("id_regiao") is not None:
+        where.append("pib_uf.sigla_regiao = (select sigla_regiao from dim_regiao where id_regiao = :id_regiao)")
+        params["id_regiao"] = flt["id_regiao"]
+
+    if flt.get("ufs"):
+        ph = sql_in_params("uf", flt["ufs"], params)
+        where.append(f"pib_uf.sigla_uf in ({ph})")
 
     return conn.query(
         f"""
-        select uf.sigla_uf, sum(f.valor) as pib
-        from fato_indicador_municipio f
-        join dim_municipio m on m.id_municipio = f.id_municipio
-        join dim_uf uf       on uf.id_uf = m.id_uf
-        join dim_regiao r    on r.id_regiao = uf.id_regiao
+        select pib_uf.sigla_uf, pib_uf.pib_total as pib
+        from mart.pib_por_uf_ano pib_uf
         where {' and '.join(where)}
-        group by uf.sigla_uf
-        order by uf.sigla_uf
+        order by pib_uf.sigla_uf
         """,
         params=params, ttl="1h",
     )
@@ -129,86 +151,105 @@ def query_missing_municipios_por_uf(conn, flt: dict) -> pd.DataFrame:
 # ── Queries novas (mart views) ────────────────────────────────────────────────
 
 def query_composicao_uf(conn, flt: dict) -> pd.DataFrame:
-    """Composição setorial por UF para um ano — alimenta 03_Composicao."""
-    where, params = _where_params_mart(flt)
+    """Composição setorial por UF para um ano — usa view mart.composicao_vab_uf_ano.
+    
+    View já traz VAB_AGRO, VAB_IND, VAB_SERV, VAB_ADM_PUBLICA, IMPOSTOS pré-calculados.
+    """
+    where  = ["comp.ano = :ano"]
+    params = {"ano": flt["ano"]}
+
+    if flt.get("id_regiao") is not None:
+        where.append("comp.sigla_regiao = (select sigla_regiao from dim_regiao where id_regiao = :id_regiao)")
+        params["id_regiao"] = flt["id_regiao"]
+
+    if flt.get("ufs"):
+        ph = sql_in_params("uf", flt["ufs"], params)
+        where.append(f"comp.sigla_uf in ({ph})")
 
     return conn.query(
         f"""
-        select v.sigla_uf, v.nome_uf, v.sigla_regiao, v.nome_regiao,
-               v.pib, v.vab_total, v.vab_agro, v.vab_ind, v.vab_serv, v.vab_apsp,
-               v.impostos, v.pct_agro, v.pct_ind, v.pct_serv, v.pct_apsp
-        from mart.vw_composicao_uf v
+        select comp.sigla_uf, comp.nome_uf, comp.sigla_regiao, comp.nome_regiao,
+               comp.vab_agropecuaria as vab_agro,
+               comp.vab_industria as vab_ind,
+               comp.vab_servicos as vab_serv,
+               comp.vab_adm_publica as vab_apsp,
+               comp.impostos_liquidos as impostos,
+               (comp.vab_agropecuaria / NULLIF(comp.vab_total, 0)) * 100 as pct_agro,
+               (comp.vab_industria / NULLIF(comp.vab_total, 0)) * 100 as pct_ind,
+               (comp.vab_servicos / NULLIF(comp.vab_total, 0)) * 100 as pct_serv,
+               (comp.vab_adm_publica / NULLIF(comp.vab_total, 0)) * 100 as pct_apsp,
+               comp.vab_total as pib
+        from mart.composicao_vab_uf_ano comp
         where {' and '.join(where)}
-        order by v.sigla_uf
+        order by comp.sigla_uf
         """,
         params=params, ttl="10m",
     )
 
 
 def query_serie_historica(conn, flt: dict) -> pd.DataFrame:
-    """Série histórica setorial — alimenta 02_Temporal."""
+    """Série histórica setorial — alimenta 02_Temporal.
+    
+    agregação de ano_ini até ano_fim usando view materializada.
+    """
     params: dict = {}
-    where  = [f"v.ano between :ano_ini and :ano_fim"]
+    where  = [f"comp.ano between :ano_ini and :ano_fim"]
     params["ano_ini"] = flt.get("ano_ini", flt["ano"])
     params["ano_fim"] = flt.get("ano_fim", flt["ano"])
 
     if flt.get("id_regiao") is not None:
-        where.append("v.sigla_regiao in (select sigla_regiao from dim_regiao where id_regiao = :id_regiao)")
+        where.append("comp.sigla_regiao = (select sigla_regiao from dim_regiao where id_regiao = :id_regiao)")
         params["id_regiao"] = flt["id_regiao"]
 
     if flt.get("ufs"):
         ph = sql_in_params("uf", flt["ufs"], params)
-        where.append(f"v.sigla_uf in ({ph})")
+        where.append(f"comp.sigla_uf in ({ph})")
 
     return conn.query(
         f"""
-        select v.ano,
-               sum(v.pib)      as pib,
-               sum(v.vab_agro) as vab_agro,
-               sum(v.vab_ind)  as vab_ind,
-               sum(v.vab_serv) as vab_serv,
-               sum(v.vab_apsp) as vab_apsp,
-               sum(v.impostos) as impostos
-        from mart.vw_composicao_uf v
+        select comp.ano,
+               sum(comp.vab_agropecuaria) as vab_agro,
+               sum(comp.vab_industria) as vab_ind,
+               sum(comp.vab_servicos) as vab_serv,
+               sum(comp.vab_adm_publica) as vab_apsp,
+               sum(comp.impostos_liquidos) as impostos,
+               sum(comp.vab_total) as pib
+        from mart.composicao_vab_uf_ano comp
         where {' and '.join(where)}
-        group by v.ano
-        order by v.ano
+        group by comp.ano
+        order by comp.ano
         """,
         params=params, ttl="10m",
     )
 
 
 def query_concentracao_uf(conn, flt: dict) -> pd.DataFrame:
-    """Métricas de concentração por UF — alimenta 05_Concentracao."""
-    where, params = _where_params_base(flt)
+    """Métricas de concentração por UF — usa view mart.concentracao_uf_metrics (JÁ CALCULADA).
+    
+    ANTES: CTEs + ROW_NUMBER em runtime → MUITO LENTO
+    DEPOIS: SELECT na view pré-calculada → MUITO RÁPIDO
+    """
+    where  = ["true"]
+    params = {}
+
+    if flt.get("id_regiao") is not None:
+        where.append("m.sigla_regiao = (select sigla_regiao from dim_regiao where id_regiao = :id_regiao)")
+        params["id_regiao"] = flt["id_regiao"]
+
+    if flt.get("ufs"):
+        ph = sql_in_params("uf", flt["ufs"], params)
+        where.append(f"m.sigla_uf in ({ph})")
 
     return conn.query(
         f"""
-        with base as (
-            select uf.sigla_uf, m.id_municipio, f.valor
-            from fato_indicador_municipio f
-            join dim_municipio m on m.id_municipio = f.id_municipio
-            join dim_uf uf       on uf.id_uf = m.id_uf
-            join dim_regiao r    on r.id_regiao = uf.id_regiao
-            where {' and '.join(where)}
-        ),
-        tot as (
-            select sigla_uf, sum(valor) as total from base group by sigla_uf
-        ),
-        ranked as (
-            select b.*, t.total,
-                   row_number() over (partition by b.sigla_uf order by b.valor desc nulls last) as rn
-            from base b join tot t on t.sigla_uf = b.sigla_uf
-        )
-        select
-            sigla_uf,
-            count(*)                                                                   as n_municipios,
-            max(case when rn = 1 then valor / nullif(total, 0) end)                   as top1_share,
-            sum(case when rn <= 10 then valor / nullif(total, 0) else 0 end)          as top10_share,
-            sum((valor / nullif(total,0)) * (valor / nullif(total,0)))                as hhi
-        from ranked
-        group by sigla_uf
-        order by top1_share desc
+        select m.sigla_uf,
+               m.n_municipios,
+               m.top1_share,
+               m.top10_share,
+               m.hhi
+        from mart.concentracao_uf_metrics m
+        where {' and '.join(where)}
+        order by m.top1_share desc
         """,
         params=params, ttl="10m",
     )

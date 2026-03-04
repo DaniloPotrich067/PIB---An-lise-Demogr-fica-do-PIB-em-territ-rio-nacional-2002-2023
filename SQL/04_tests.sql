@@ -156,8 +156,12 @@ ORDER BY SUM(f.valor) DESC;
 -- ================================================================
 
 -- [T17] Contagem de todas as views (ESPERADO: todas > 0)
-SELECT 'mart.pib_por_uf_ano'         AS view_mart, COUNT(*) AS total,
+SELECT 'mart.pib_por_municipio'      AS view_mart, COUNT(*) AS total,
     CASE WHEN COUNT(*) > 0 THEN '✅ OK' ELSE '❌ VAZIA' END AS status
+FROM mart.pib_por_municipio
+UNION ALL
+SELECT 'mart.pib_por_uf_ano',         COUNT(*),
+    CASE WHEN COUNT(*) > 0 THEN '✅ OK' ELSE '❌ VAZIA' END
 FROM mart.pib_por_uf_ano
 UNION ALL
 SELECT 'mart.pib_por_regiao_ano',     COUNT(*),
@@ -174,21 +178,22 @@ FROM mart.composicao_vab_uf_ano
 UNION ALL
 SELECT 'mart.ranking_municipios',     COUNT(*),
     CASE WHEN COUNT(*) > 0 THEN '✅ OK' ELSE '❌ VAZIA' END
-FROM mart.ranking_municipios;
+FROM mart.ranking_municipios
+UNION ALL
+SELECT 'mart.concentracao_uf_metrics', COUNT(*),
+    CASE WHEN COUNT(*) > 0 THEN '✅ OK' ELSE '❌ VAZIA' END
+FROM mart.concentracao_uf_metrics;
 
 -- [T18] Preview ranking — top 5 com posição calculada
 -- ESPERADO: São Paulo no topo (pos = 1)
 SELECT
-    ROW_NUMBER() OVER (ORDER BY f.valor DESC) AS pos,
+    r.ranking_nacional AS pos,
     r.nome_municipio,
     r.sigla_uf,
-    TO_CHAR(f.valor::numeric, 'FM999,999,999') AS pib
+    TO_CHAR(r.pib::numeric, 'FM999,999,999') AS pib
 FROM mart.ranking_municipios r
-JOIN fato_indicador_municipio f  ON r.id_municipio = f.id_municipio
-JOIN dim_variavel v              ON f.id_variavel = v.id_variavel
-WHERE v.nome_variavel = 'PIB'
-  AND f.ano = (SELECT MAX(ano) FROM fato_indicador_municipio)
-ORDER BY f.valor DESC
+WHERE r.ano = (SELECT MAX(ano) FROM fato_indicador_municipio)
+ORDER BY r.ranking_nacional
 LIMIT 5;
 
 -- [T19] Consistência mart vs fato — PIB de SP deve ser IGUAL
@@ -205,12 +210,78 @@ JOIN dim_municipio m ON f.id_municipio = m.id_municipio
 JOIN dim_uf u        ON m.id_uf = u.id_uf
 JOIN dim_variavel v  ON f.id_variavel = v.id_variavel
 WHERE u.sigla_uf = 'SP'
-  AND v.nome_variavel = 'PIB'
+  AND v.nome_variavel LIKE 'SIDRA:37 -%'
   AND f.ano = (SELECT MAX(ano) FROM fato_indicador_municipio);
 
 
 -- ================================================================
--- SEÇÃO 6 — DUPLICATAS
+-- SEÇÃO 6 — VALIDAÇÃO DE ÍNDICES
+-- ================================================================
+
+-- [T20] Listar todos os índices criados (ESPERADO: 12+ índices)
+SELECT 
+    indexname,
+    tablename,
+    CASE 
+        WHEN indexname LIKE '%uid' THEN '🔑 UNIQUE'
+        ELSE '📇 Regular'
+    END AS tipo
+FROM pg_indexes
+WHERE schemaname IN ('public', 'mart')
+  AND tablename NOT LIKE 'pg_%'
+ORDER BY tablename, indexname;
+
+-- [T21] Validar índices UNIQUE em views (ESPERADO: 7)
+SELECT COUNT(*) AS qtd_unique_indexes,
+    CASE 
+        WHEN COUNT(*) >= 7 THEN '✅ OK'
+        ELSE '❌ FALHOU'
+    END AS status
+FROM pg_indexes
+WHERE schemaname = 'mart'
+  AND indexname LIKE '%uid';
+
+
+-- ================================================================
+-- SEÇÃO 7 — VALIDAÇÃO DA FUNÇÃO REFRESH
+-- ================================================================
+
+-- [T22] Testar que a função refresh_all existe e é executável
+SELECT 'mart.refresh_all()' AS funcao,
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 FROM information_schema.routines 
+            WHERE routine_name = 'refresh_all' AND routine_schema = 'mart'
+        ) THEN '✅ EXISTE'
+        ELSE '❌ NÃO EXISTE'
+    END AS status;
+
+-- [T23] Executar refresh (validar que executa sem erro)
+-- Descomente se quiser testar (leva 2-3 minutos)
+-- SELECT mart.refresh_all();
+
+
+-- ================================================================
+-- SEÇÃO 8 — TESTES DE PERFORMANCE
+-- ================================================================
+
+-- ⏱️ Use \timing on para ver duração em ms
+
+-- [T24] Query rápida: pib_por_municipio
+-- Esperado: < 50ms
+-- SELECT COUNT(*) FROM mart.pib_por_municipio WHERE ano = 2021;
+
+-- [T25] Query rápida: pib_por_uf_ano  
+-- Esperado: < 20ms
+-- SELECT * FROM mart.pib_por_uf_ano WHERE ano = 2021 LIMIT 1;
+
+-- [T26] Query rápida: concentracao_uf_metrics
+-- Esperado: < 15ms
+-- SELECT * FROM mart.concentracao_uf_metrics LIMIT 1;
+
+
+-- ================================================================
+-- SEÇÃO 9 — DUPLICATAS
 -- ================================================================
 
 -- [T20] Duplicatas na PK da fato (ESPERADO: 0 linhas)
@@ -229,45 +300,69 @@ HAVING COUNT(*) > 1;
 
 
 -- ================================================================
--- SEÇÃO 7 — RESUMO FINAL (rode por último)
+-- SEÇÃO 10 — RESUMO FINAL (rode por último)
 -- ================================================================
--- ESPERADO: todas as 8 linhas com ✅ OK
+-- ESPERADO: todas as linhas com ✅ OK
 
 SELECT teste, total, status FROM (
-    SELECT 1, 'T01 dim_regiao (= 5)'             AS teste, COUNT(*) AS total,
+    SELECT 1, 'T01 dim_regiao (= 5)'                    AS teste, COUNT(*) AS total,
         CASE WHEN COUNT(*) = 5 THEN '✅ OK' ELSE '❌ FALHOU' END AS status
     FROM dim_regiao
     UNION ALL
-    SELECT 2, 'T02 dim_uf (= 27)',                COUNT(*),
+    SELECT 2, 'T02 dim_uf (= 27)',                       COUNT(*),
         CASE WHEN COUNT(*) = 27 THEN '✅ OK' ELSE '❌ FALHOU' END
     FROM dim_uf
     UNION ALL
-    SELECT 3, 'T03 dim_municipio (5560–5572)',    COUNT(*),
+    SELECT 3, 'T03 dim_municipio (5560–5572)',           COUNT(*),
         CASE WHEN COUNT(*) BETWEEN 5560 AND 5572 THEN '✅ OK' ELSE '❌ FALHOU' END
     FROM dim_municipio
     UNION ALL
-    SELECT 4, 'T04 dim_variavel (>= 5)',          COUNT(*),
+    SELECT 4, 'T04 dim_variavel (>= 5)',                 COUNT(*),
         CASE WHEN COUNT(*) >= 5 THEN '✅ OK' ELSE '❌ FALHOU' END
     FROM dim_variavel
     UNION ALL
-    SELECT 5, 'T09 fato total (>= 100k)',         COUNT(*),
+    SELECT 5, 'T09 fato total (>= 100k)',                COUNT(*),
         CASE WHEN COUNT(*) >= 100000 THEN '✅ OK' ELSE '⚠️ VOLUME BAIXO' END
     FROM fato_indicador_municipio
     UNION ALL
-    SELECT 6, 'T12 fato nulos (= 0)',             COUNT(*),
+    SELECT 6, 'T12 fato nulos (= 0)',                    COUNT(*),
         CASE WHEN COUNT(*) = 0 THEN '✅ OK' ELSE '❌ FALHOU' END
     FROM fato_indicador_municipio WHERE valor IS NULL
     UNION ALL
-    SELECT 7, 'T13 fato negativos (= 0)',         COUNT(*),
+    SELECT 7, 'T13 fato negativos (= 0)',                COUNT(*),
         CASE WHEN COUNT(*) = 0 THEN '✅ OK' ELSE '⚠️ VERIFICAR' END
     FROM fato_indicador_municipio WHERE valor < 0
     UNION ALL
-    SELECT 8, 'T20 duplicatas fato (= 0)',        COUNT(*),
+    SELECT 8, 'T20 duplicatas fato (= 0)',               COUNT(*),
         CASE WHEN COUNT(*) = 0 THEN '✅ OK' ELSE '❌ FALHOU' END
     FROM (
         SELECT id_municipio FROM fato_indicador_municipio
         GROUP BY id_municipio, id_variavel, ano HAVING COUNT(*) > 1
     ) d
+    UNION ALL
+    SELECT 9, 'T17 views materializadas (7)',            COUNT(*),
+        CASE WHEN COUNT(*) = 7 THEN '✅ OK' ELSE '❌ FALHOU' END
+    FROM (
+        SELECT 1 FROM mart.pib_por_municipio
+        UNION ALL SELECT 1 FROM mart.pib_por_uf_ano
+        UNION ALL SELECT 1 FROM mart.pib_por_regiao_ano
+        UNION ALL SELECT 1 FROM mart.concentracao_municipio
+        UNION ALL SELECT 1 FROM mart.composicao_vab_uf_ano
+        UNION ALL SELECT 1 FROM mart.ranking_municipios
+        UNION ALL SELECT 1 FROM mart.concentracao_uf_metrics
+    ) views
+    UNION ALL
+    SELECT 10, 'T21 índices UNIQUE (7)',                 COUNT(*),
+        CASE WHEN COUNT(*) >= 7 THEN '✅ OK' ELSE '⚠️ VERIFICAR' END
+    FROM pg_indexes
+    WHERE schemaname = 'mart' AND indexname LIKE '%uid'
+    UNION ALL
+    SELECT 11, 'T22 função refresh_all',                 1,
+        CASE 
+            WHEN EXISTS (SELECT 1 FROM information_schema.routines 
+                        WHERE routine_name = 'refresh_all' AND routine_schema = 'mart')
+            THEN '✅ OK' ELSE '❌ NÃO EXISTE' 
+        END
 ) resumo
 ORDER BY 1;
 
