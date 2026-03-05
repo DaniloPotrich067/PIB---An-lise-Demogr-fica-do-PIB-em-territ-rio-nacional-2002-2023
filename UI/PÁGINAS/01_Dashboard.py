@@ -5,7 +5,7 @@ import streamlit as st
 from COMPONENTES.shared import ensure_ui_in_path, load_dims
 from COMPONENTES.layout import apply_style, fmt_short_br, kpi_help_unidade
 from COMPONENTES.filters import sidebar_filters
-from COMPONENTES.data import query_base_municipios, query_pib_uf, query_total_municipios
+from COMPONENTES.data import query_base_municipios, query_valor_por_uf, query_total_municipios
 from COMPONENTES.charts import bar_top_municipios, bar_top_ufs
 from COMPONENTES.blocks import render_uf_map_with_info
 
@@ -31,6 +31,7 @@ flt = sidebar_filters(
     title="Filtros (Dashboard)",
     with_top_n=True,
     with_map=True,
+    with_var=True,
 )
 
 try:
@@ -67,7 +68,7 @@ if ano_atual and ano_atual > min(anos):
         pass
 
 c1, c2, c3, c4, c5, c6 = st.columns(6)
-c1.metric("PIB (soma)", fmt_short_br(total), delta=delta_pib,
+c1.metric("Valor (soma)", fmt_short_br(total), delta=delta_pib,
           delta_color=delta_cor, help=kpi_help_unidade())
 c2.metric("Municípios c/ dado", f"{n_mun:,}".replace(",", "."))
 c3.metric("Cobertura", f"{cob:.1%}")
@@ -79,9 +80,9 @@ c6.metric("Top1 share", f"{top1_share:.1%}",
 st.divider()
 
 try:
-    df_pib_uf = query_pib_uf(conn, flt)
-    if not df_pib_uf.empty:
-        render_uf_map_with_info(df_pib_uf, value_col="pib", opacity=flt.get("map_opacity", 0.7))
+    df_uf_val = query_valor_por_uf(conn, flt)
+    if not df_uf_val.empty:
+        render_uf_map_with_info(df_uf_val, value_col="pib", opacity=flt.get("map_opacity", 0.7))
     else:
         st.warning("⚠️ Sem dados de UF para o mapa.")
 except Exception as e:
@@ -93,7 +94,7 @@ left, right = st.columns([1.2, 1.0])
 
 with left:
     try:
-        st.subheader(f"Top {flt.get('top_n', 10)} municípios")
+        st.subheader(f"Top {flt.get('top_n', 10)} municípios — {flt.get('var_label', '')}")
         st.plotly_chart(
             bar_top_municipios(df, n=flt.get("top_n", 10), color_col="sigla_regiao"),
             use_container_width=True,
@@ -113,6 +114,6 @@ st.divider()
 
 st.caption(
     f"📌 **{top1['nome_municipio']} ({top1['sigla_uf']})** lidera com "
-    f"**{top1_share:.1%}** do PIB total do recorte. "
+    f"**{top1_share:.1%}** do valor total do recorte. "
     f"Os 5 maiores municípios concentram **{top5_share:.1%}** do total."
 )

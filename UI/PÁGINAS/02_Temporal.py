@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import streamlit as st
 import plotly.express as px
-import plotly.graph_objects as go
 
 from COMPONENTES.shared import ensure_ui_in_path, load_dims
 from COMPONENTES.layout import apply_style, fmt_short_br
@@ -22,6 +21,7 @@ flt = sidebar_filters(
     title="Filtros (Temporal)",
     with_ano_range=True,
     with_uf_single=True,
+    with_var=False,
 )
 
 df = query_serie_historica(conn, flt)
@@ -36,7 +36,6 @@ LABELS = {
 }
 COLS = ["pib", "vab_agro", "vab_ind", "vab_serv", "vab_apsp"]
 
-# KPIs
 ano_ini_val = int(df["ano"].min())
 ano_fim_val = int(df["ano"].max())
 pib_ini = float(df[df["ano"] == ano_ini_val]["pib"].sum())
@@ -50,7 +49,6 @@ c3.metric("Crescimento acumulado", f"{cresc:+.1%}")
 
 st.divider()
 
-# Linha — valores absolutos
 st.subheader("PIB e setores — valores absolutos")
 df_melt = df.melt(id_vars=["ano"], value_vars=COLS, var_name="serie", value_name="valor")
 df_melt["serie"] = df_melt["serie"].map(LABELS)
@@ -65,7 +63,6 @@ st.plotly_chart(fig_abs, use_container_width=True)
 
 st.divider()
 
-# Base 100
 st.subheader("Crescimento relativo — base 100 no ano inicial")
 st.caption("Mostra qual setor cresceu mais independente do tamanho absoluto.")
 
@@ -89,7 +86,6 @@ st.plotly_chart(fig_idx, use_container_width=True)
 
 st.divider()
 
-# Variação % anual
 st.subheader("Variação % anual — PIB")
 df_var_anual = df[["ano", "pib"]].copy()
 df_var_anual["var_pct"] = df_var_anual["pib"].pct_change() * 100

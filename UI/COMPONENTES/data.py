@@ -41,40 +41,104 @@ def _where_params_mart(flt: dict, uf_col: str = "v.sigla_uf", reg_col: str = "v.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# QUERIES — mart views
+# QUERIES — fato (respeitam id_variavel — ttl=0 para atualizar com filtro)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def query_base_municipios(conn, flt: dict) -> pd.DataFrame:
-    """PIB por município — mart.pib_por_municipio."""
-    where  = ["pib.ano = :ano"]
-    params = {"ano": flt["ano"]}
+    """Valor por município direto da fato — respeita id_variavel."""
+    where  = ["f.ano = :ano", "f.id_variavel = :id_variavel"]
+    params = {"ano": flt["ano"], "id_variavel": flt["id_variavel"]}
 
     if flt.get("id_regiao") is not None:
-        where.append("pib.id_regiao = :id_regiao")
+        where.append("u.id_regiao = :id_regiao")
         params["id_regiao"] = flt["id_regiao"]
 
     if flt.get("ufs"):
         ph = sql_in_params("uf", flt["ufs"], params)
-        where.append(f"pib.sigla_uf in ({ph})")
+        where.append(f"u.sigla_uf in ({ph})")
 
     if flt.get("cidade"):
-        where.append("pib.nome_municipio ilike :cidade")
+        where.append("m.nome_municipio ilike :cidade")
         params["cidade"] = f"%{flt['cidade']}%"
 
     return conn.query(
         f"""
-        select pib.sigla_regiao, pib.sigla_uf, pib.id_municipio,
-               pib.nome_municipio, pib.pib as valor
-        from mart.pib_por_municipio pib
+        select r.sigla_regiao, u.sigla_uf, m.id_municipio,
+               m.nome_municipio, f.valor
+        from fato_indicador_municipio f
+        join dim_municipio m on m.id_municipio = f.id_municipio
+        join dim_uf        u on u.id_uf        = m.id_uf
+        join dim_regiao    r on r.id_regiao     = u.id_regiao
         where {" and ".join(where)}
-        order by pib.pib desc
+        order by f.valor desc
         """,
-        params=params, ttl="1h",
+        params=params, ttl=0,
     )
 
 
+def query_valor_por_uf(conn, flt: dict) -> pd.DataFrame:
+    """Agrega valor por UF respeitando id_variavel — mapa dinâmico."""
+    where  = ["f.ano = :ano", "f.id_variavel = :id_variavel"]
+    params = {"ano": flt["ano"], "id_variavel": flt["id_variavel"]}
+
+    if flt.get("id_regiao") is not None:
+        where.append("u.id_regiao = :id_regiao")
+        params["id_regiao"] = flt["id_regiao"]
+
+    if flt.get("ufs"):
+        ph = sql_in_params("uf", flt["ufs"], params)
+        where.append(f"u.sigla_uf in ({ph})")
+
+    return conn.query(
+        f"""
+        select u.sigla_uf, sum(f.valor) as pib
+        from fato_indicador_municipio f
+        join dim_municipio m on m.id_municipio = f.id_municipio
+        join dim_uf        u on u.id_uf        = m.id_uf
+        where {" and ".join(where)}
+        group by u.sigla_uf
+        order by u.sigla_uf
+        """,
+        params=params, ttl=0,
+    )
+
+
+def query_missing_municipios_por_uf(conn, flt: dict) -> pd.DataFrame:
+    params = {"ano": flt["ano"], "id_variavel": flt["id_variavel"]}
+    extra  = ""
+
+    if flt.get("id_regiao") is not None:
+        extra += " and r.id_regiao = :id_regiao"
+        params["id_regiao"] = flt["id_regiao"]
+
+    if flt.get("ufs"):
+        ph = sql_in_params("muf", flt["ufs"], params)
+        extra += f" and uf.sigla_uf in ({ph})"
+
+    return conn.query(
+        f"""
+        select uf.sigla_uf, count(*) as municipios_sem_pib
+        from dim_municipio m
+        join dim_uf uf    on uf.id_uf     = m.id_uf
+        join dim_regiao r on r.id_regiao  = uf.id_regiao
+        left join fato_indicador_municipio f
+            on f.id_municipio = m.id_municipio
+           and f.ano          = :ano
+           and f.id_variavel  = :id_variavel
+        where f.id_municipio is null {extra}
+        group by uf.sigla_uf
+        order by municipios_sem_pib desc
+        """,
+        params=params, ttl=0,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# QUERIES — mart views (fixas, sem id_variavel — ttl longo OK)
+# ─────────────────────────────────────────────────────────────────────────────
+
 def query_pib_uf(conn, flt: dict) -> pd.DataFrame:
-    """PIB agregado por UF — mart.pib_por_uf_ano."""
+    """PIB agregado por UF — mart.pib_por_uf_ano. Usado onde indicador é fixo."""
     where  = ["pib_uf.ano = :ano"]
     params = {"ano": flt["ano"]}
 
@@ -139,7 +203,6 @@ def query_composicao_uf(conn, flt: dict) -> pd.DataFrame:
 
 
 def query_serie_historica(conn, flt: dict) -> pd.DataFrame:
-    """Série histórica setorial — mart.composicao_vab_uf_ano."""
     params = {
         "ano_ini": flt.get("ano_ini", flt["ano"]),
         "ano_fim": flt.get("ano_fim", flt["ano"]),
@@ -232,34 +295,4 @@ def query_sanity_counts(conn) -> pd.DataFrame:
 def query_total_municipios(conn) -> int:
     return int(
         conn.query("select count(*) as n from dim_municipio;", ttl="1h")["n"].iloc[0]
-    )
-
-
-def query_missing_municipios_por_uf(conn, flt: dict) -> pd.DataFrame:
-    params = {"ano": flt["ano"], "id_variavel": flt["id_variavel"]}
-    extra  = ""
-
-    if flt.get("id_regiao") is not None:
-        extra += " and r.id_regiao = :id_regiao"
-        params["id_regiao"] = flt["id_regiao"]
-
-    if flt.get("ufs"):
-        ph = sql_in_params("muf", flt["ufs"], params)
-        extra += f" and uf.sigla_uf in ({ph})"
-
-    return conn.query(
-        f"""
-        select uf.sigla_uf, count(*) as municipios_sem_pib
-        from dim_municipio m
-        join dim_uf uf    on uf.id_uf     = m.id_uf
-        join dim_regiao r on r.id_regiao  = uf.id_regiao
-        left join fato_indicador_municipio f
-            on f.id_municipio = m.id_municipio
-           and f.ano          = :ano
-           and f.id_variavel  = :id_variavel
-        where f.id_municipio is null {extra}
-        group by uf.sigla_uf
-        order by municipios_sem_pib desc
-        """,
-        params=params, ttl="10m",
     )

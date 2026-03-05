@@ -22,9 +22,15 @@ st.markdown(
 
 conn = st.connection("pib", type="sql")
 df_reg, df_uf, df_var, anos = load_dims(conn)
-flt = sidebar_filters(df_reg, df_uf, df_var, anos, title="Filtros (Concentração)", with_map=True)
+flt = sidebar_filters(
+    df_reg, df_uf, df_var, anos,
+    title="Filtros (Concentração)",
+    with_map=True,
+    with_var=False,
+)
 
-render_uf_map_with_info(query_pib_uf(conn, flt), value_col="pib", opacity=flt["map_opacity"],
+render_uf_map_with_info(query_pib_uf(conn, flt), value_col="pib",
+                        opacity=flt["map_opacity"],
                         title="Mapa — PIB por UF (contexto do recorte)")
 
 st.divider()

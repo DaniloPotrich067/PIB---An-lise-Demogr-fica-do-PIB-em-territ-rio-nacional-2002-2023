@@ -3,12 +3,10 @@ from __future__ import annotations
 import streamlit as st
 from COMPONENTES.shared import build_var_map, uf_options_for_region
 
-# Último ano com série completa (setorial + PIB)
 ANO_PADRAO = 2021
 
 
 def _default_ano_idx(anos: list, preferido: int = ANO_PADRAO) -> int:
-    """Aponta para o ano preferido; se não existir, vai para o último ≤ preferido."""
     anos_int = [int(a) for a in anos]
     if preferido in anos_int:
         return anos_int.index(preferido)
@@ -28,6 +26,7 @@ def sidebar_filters(
     with_map: bool = False,
     with_ano_range: bool = False,
     with_uf_single: bool = False,
+    with_var: bool = True,
 ):
     st.sidebar.header(title)
 
@@ -38,14 +37,10 @@ def sidebar_filters(
     flt: dict = {}
 
     if with_ano_range:
-        ano_min = int(min(anos))
-        ano_max = int(max(anos))
-        # Padrão: de 2002 até 2021 (último ano com série completa)
+        ano_min    = int(min(anos))
+        ano_max    = int(max(anos))
         fim_padrao = ANO_PADRAO if ANO_PADRAO <= ano_max else ano_max
-        ano_range = st.sidebar.slider(
-            "Período", ano_min, ano_max,
-            (ano_min, fim_padrao),
-        )
+        ano_range  = st.sidebar.slider("Período", ano_min, ano_max, (ano_min, fim_padrao))
         flt["ano_ini"] = ano_range[0]
         flt["ano_fim"] = ano_range[1]
         flt["ano"]     = ano_range[1]
@@ -57,11 +52,15 @@ def sidebar_filters(
         flt["ano_fim"] = int(ano)
 
     var_map = build_var_map(df_var)
-    id_variavel = st.sidebar.selectbox(
-        "Indicador",
-        options=list(var_map.keys()),
-        format_func=lambda k: var_map[k],
-    )
+
+    if with_var:
+        id_variavel = st.sidebar.selectbox(
+            "Indicador",
+            options=list(var_map.keys()),
+            format_func=lambda k: var_map[k],
+        )
+    else:
+        id_variavel = 1  # PIB fixo — páginas que não usam indicador
 
     id_regiao = st.sidebar.selectbox(
         "Região",
@@ -73,11 +72,11 @@ def sidebar_filters(
     uf_opts = uf_options_for_region(df_uf, id_regiao)
 
     if with_uf_single:
-        uf_sel = st.sidebar.selectbox("UF", options=["Todas"] + uf_opts)
+        uf_sel       = st.sidebar.selectbox("UF", options=["Todas"] + uf_opts)
         flt["uf_single"] = None if uf_sel == "Todas" else uf_sel
         flt["ufs"]       = [] if uf_sel == "Todas" else [uf_sel]
     else:
-        sel_ufs = st.sidebar.multiselect("UF(s)", options=uf_opts, default=[])
+        sel_ufs          = st.sidebar.multiselect("UF(s)", options=uf_opts, default=[])
         flt["ufs"]       = sel_ufs
         flt["uf_single"] = None
 

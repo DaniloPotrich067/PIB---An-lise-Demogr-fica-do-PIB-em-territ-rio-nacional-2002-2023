@@ -16,7 +16,11 @@ st.markdown("De que é feito o PIB de cada UF: agropecuária, indústria, servi�
 
 conn = st.connection("pib", type="sql")
 df_reg, df_uf, df_var, anos = load_dims(conn)
-flt = sidebar_filters(df_reg, df_uf, df_var, anos, title="Filtros (Composição)")
+flt = sidebar_filters(
+    df_reg, df_uf, df_var, anos,
+    title="Filtros (Composição)",
+    with_var=False,
+)
 
 df = query_composicao_uf(conn, flt)
 if df.empty:
@@ -70,9 +74,9 @@ st.plotly_chart(fig_heat, use_container_width=True)
 st.divider()
 
 st.subheader("Composição de uma UF específica")
-ufs_disp = sorted(df["sigla_uf"].tolist())
+ufs_disp    = sorted(df["sigla_uf"].tolist())
 default_idx = ufs_disp.index("SP") if "SP" in ufs_disp else 0
-uf_sel = st.selectbox("Selecione a UF", ufs_disp, index=default_idx)
+uf_sel      = st.selectbox("Selecione a UF", ufs_disp, index=default_idx)
 
 row  = df[df["sigla_uf"] == uf_sel].iloc[0]
 vals = {v: float(row[k]) for k, v in SETORES.items()}
@@ -87,6 +91,5 @@ fig_donut.update_layout(title=f"{uf_sel} — composição setorial do VAB")
 st.plotly_chart(fig_donut, use_container_width=True)
 
 with st.expander("Ver tabela completa"):
-    # nome_uf vem do JOIN em query_composicao_uf
     cols_exib = [c for c in ["sigla_uf", "nome_uf", "pib", "vab_agro", "vab_ind", "vab_serv", "vab_apsp"] if c in df.columns]
     st.dataframe(df[cols_exib], use_container_width=True)

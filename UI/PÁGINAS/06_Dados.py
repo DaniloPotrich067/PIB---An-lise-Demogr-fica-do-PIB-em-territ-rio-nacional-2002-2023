@@ -19,7 +19,12 @@ st.markdown("Cobertura e consistência do banco para evitar análise enganosa.")
 
 conn = st.connection("pib", type="sql")
 df_reg, df_uf, df_var, anos = load_dims(conn)
-flt = sidebar_filters(df_reg, df_uf, df_var, anos, title="Filtros (Dados & Qualidade)", with_city=True)
+flt = sidebar_filters(
+    df_reg, df_uf, df_var, anos,
+    title="Filtros (Dados & Qualidade)",
+    with_city=True,
+    with_var=True,
+)
 limit = st.sidebar.slider("Linhas (amostra)", 10, 200, 50, 10)
 
 san = query_sanity_counts(conn)
@@ -32,7 +37,7 @@ c5.metric("Fatos",      int(san["n_fato"].iloc[0]))
 
 st.divider()
 
-df_base = query_base_municipios(conn, flt)
+df_base    = query_base_municipios(conn, flt)
 n_com_dado = int(df_base["id_municipio"].nunique()) if not df_base.empty else 0
 tot_mun    = query_total_municipios(conn)
 cob        = (n_com_dado / tot_mun) if tot_mun else 0.0
