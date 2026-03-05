@@ -36,24 +36,24 @@ if df.empty:
     st.warning("Sem dados para os filtros.")
     st.stop()
 
-cols = ["sigla_uf", "n_municipios", "top1_share", "top10_share"] + (["hhi"] if mostrar_hhi else [])
+cols = ["sigla_uf", "n_municipios", "top1_pct", "top10_pct"] + (["hhi"] if mostrar_hhi else [])
 st.subheader("Tabela (por UF)")
 st.dataframe(df[cols], use_container_width=True)
 
 st.subheader("Top1 share — mais dependente de 1 município")
 fig1 = px.bar(
-    df.sort_values("top1_share", ascending=False),
-    x="sigla_uf", y="top1_share",
-    color="top1_share", color_continuous_scale="Reds", template="plotly_dark",
+    df.sort_values("top1_pct", ascending=False),
+    x="sigla_uf", y="top1_pct",
+    color="top1_pct", color_continuous_scale="Reds", template="plotly_dark",
 )
 fig1.update_layout(xaxis_title=None, yaxis_title=None, coloraxis_showscale=False)
 st.plotly_chart(fig1, use_container_width=True)
 
 st.subheader("Top10 share — mais concentrado nos 10 maiores")
 fig10 = px.bar(
-    df.sort_values("top10_share", ascending=False),
-    x="sigla_uf", y="top10_share",
-    color="top10_share", color_continuous_scale="Oranges", template="plotly_dark",
+    df.sort_values("top10_pct", ascending=False),
+    x="sigla_uf", y="top10_pct",
+    color="top10_pct", color_continuous_scale="Oranges", template="plotly_dark",
 )
 fig10.update_layout(xaxis_title=None, yaxis_title=None, coloraxis_showscale=False)
 st.plotly_chart(fig10, use_container_width=True)

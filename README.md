@@ -63,6 +63,8 @@ Este repositório contém um pipeline de ETL e um dashboard em Streamlit para an
 | **Dados & Qualidade** | Tabela exportável; métricas de cobertura e ausência; evolução das linhas extraídas | Qual a qualidade dos dados? Quais anos/variáveis faltam? Há anomalias? |
 
 > 📝 A página **00_Extrair** serve apenas durante a fase de ingestão; não é parte do dashboard final.
+>
+> ⚠️ **Mapa**: o dashboard carrega um GeoJSON de estados (`UI/assets/br_estados.geojson`) que é simplificado e cacheado para acelerar a renderização no Streamlit. Ao trocar esse arquivo por outra versão (por exemplo, uma geometria menos detalhada) ou ajustar a função `choropleth_uf_faixas` em `COMPONENTES/maps.py`, a performance do mapa melhora drasticamente.
 
 ## Como rodar
 
@@ -97,4 +99,4 @@ Este repositório contém um pipeline de ETL e um dashboard em Streamlit para an
 
 ---
 
-Esse README deve servir como documentação inicial para qualquer pessoa que queira entender ou implantar o projeto. инсан
+Esse README deve servir como documentação inicial para qualquer pessoa que queira entender ou implantar o projeto.

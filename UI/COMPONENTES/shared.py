@@ -9,12 +9,11 @@ import pandas as pd
 
 from COMPONENTES.layout import FRIENDLY_VARIABLES
 
-
 _SIDRA_PREFIX_RE = re.compile(r"^SIDRA:\s*\d+\s*-\s*")
 
 
 def ui_root() -> Path:
-    return Path(__file__).resolve().parents[1]  # .../UI
+    return Path(__file__).resolve().parents[1]
 
 
 def ensure_ui_in_path() -> None:
@@ -29,24 +28,19 @@ def asset_path(*parts: str) -> str:
 
 @st.cache_data(ttl=86400)
 def load_dims(_conn):
-    regs = _conn.query(
-        "select id_regiao, sigla_regiao, nome_regiao from dim_regiao order by id_regiao;",
-        ttl="24h",
-    )
-    ufs = _conn.query(
-        "select id_uf, sigla_uf, nome_uf, id_regiao from dim_uf order by sigla_uf;",
-        ttl="24h",
-    )
-    vars_ = _conn.query(
-        "select id_variavel, nome_variavel, unidade from dim_variavel order by nome_variavel;",
-        ttl="24h",
-    )
-    anos = _conn.query(
-        "select distinct ano from fato_indicador_municipio order by ano;",
-        ttl="24h",
-    )["ano"].tolist()
-
-    return regs, ufs, vars_, anos
+    """Carrega dimensões estáticas (regiao, uf, variavel) + anos disponíveis. Cache de 24h."""
+    try:
+        df_reg = _conn.query("SELECT * FROM dim_regiao ORDER BY id_regiao;",     ttl="1h")
+        df_uf  = _conn.query("SELECT * FROM dim_uf ORDER BY sigla_uf;",          ttl="1h")
+        df_var = _conn.query("SELECT * FROM dim_variavel ORDER BY id_variavel;", ttl="1h")
+        anos   = _conn.query(
+            "SELECT DISTINCT ano FROM fato_indicador_municipio ORDER BY ano DESC;",
+            ttl="1h",
+        )["ano"].tolist()
+        return df_reg, df_uf, df_var, anos
+    except Exception as e:
+        st.error(f"❌ Erro ao carregar dimensões: {str(e)}")
+        raise
 
 
 def uf_options_for_region(df_uf: pd.DataFrame, id_regiao: int | None) -> list[str]:
@@ -72,9 +66,9 @@ def _friendly_var_name(raw: str) -> str:
 def build_var_map(df_var: pd.DataFrame) -> dict[int, str]:
     out: dict[int, str] = {}
     for r in df_var.itertuples(index=False):
-        k = int(r.id_variavel)
-        raw = str(r.nome_variavel)
+        k        = int(r.id_variavel)
+        raw      = str(r.nome_variavel)
         friendly = _friendly_var_name(raw)
-        unidade = "" if pd.isna(r.unidade) or r.unidade is None else str(r.unidade).strip()
-        out[k] = f"{friendly} ({unidade})" if unidade else friendly
+        unidade  = "" if pd.isna(r.unidade) or r.unidade is None else str(r.unidade).strip()
+        out[k]   = f"{friendly} ({unidade})" if unidade else friendly
     return out

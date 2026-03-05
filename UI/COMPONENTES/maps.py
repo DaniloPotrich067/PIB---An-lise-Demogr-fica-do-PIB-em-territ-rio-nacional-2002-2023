@@ -148,7 +148,7 @@ def choropleth_uf_faixas(
     df_uf: pd.DataFrame,
     *,
     value_col="pib",
-    geojson_file="br_estados.geojson",
+    geojson_file="br_estados_simplified.geojson",
     opacity=0.82,
 ):
     if df_uf is None or df_uf.empty:
@@ -158,8 +158,8 @@ def choropleth_uf_faixas(
         return None, None, f"df_uf precisa ter colunas: sigla_uf e {value_col}"
 
     df = df_uf.copy()
-    df["sigla_uf"]  = df["sigla_uf"].map(_norm_sigla)
-    df[value_col]   = df[value_col].astype(float)
+    df["sigla_uf"] = df["sigla_uf"].map(_norm_sigla)
+    df[value_col]  = df[value_col].astype(float)
     df = df[df["sigla_uf"].isin(UF_SIGLAS)]
     if df.empty:
         return None, None, "Sem UFs válidas após normalização."
@@ -179,10 +179,10 @@ def choropleth_uf_faixas(
     matches = len(df_ids.intersection(geo_ids))
 
     info.update({
-        "id_source":       id_source,
-        "ufs_esperadas":   len(df_ids),
-        "matches":         matches,
-        "ufs_sem_match":   sorted(list(df_ids - geo_ids)),
+        "id_source":     id_source,
+        "ufs_esperadas": len(df_ids),
+        "matches":       matches,
+        "ufs_sem_match": sorted(list(df_ids - geo_ids)),
     })
 
     if matches < len(df_ids):
@@ -191,7 +191,7 @@ def choropleth_uf_faixas(
             f"Sem match: {', '.join(info['ufs_sem_match'][:10])}"
         )
 
-    fig = px.choropleth(
+    fig = px.choropleth_mapbox(
         df,
         geojson=br,
         locations="sigla_uf",
@@ -211,19 +211,22 @@ def choropleth_uf_faixas(
             "Acima da média":  "#2ecc71",
         },
         category_orders={"faixa": ["Abaixo da média", "Na média", "Acima da média"]},
+        # ── centro do Brasil
+        mapbox_style="carto-darkmatter",
+        center={"lat": -14.0, "lon": -51.0},
+        zoom=3.0,
+        opacity=float(opacity),
     )
 
-    fig.update_traces(
-        marker_opacity=float(opacity),
-        marker_line_width=0.8,
-        marker_line_color="rgba(255,255,255,0.25)",
-        selector=dict(type="choropleth"),
-    )
-    fig.update_geos(fitbounds="locations", visible=False)
     fig.update_layout(
         margin=dict(l=0, r=0, t=0, b=0),
         template="plotly_dark",
         legend_title_text="Classificação",
+        mapbox=dict(
+            style="carto-darkmatter",
+            center={"lat": -14.0, "lon": -51.0},
+            zoom=3.0,
+        ),
     )
 
     return fig, info, None

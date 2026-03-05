@@ -4,6 +4,8 @@ pib_backup.dump
 
 # Secrets
 .streamlit/secrets.toml
+.neon/deploy_neon.py
+.neon/validate_neon.py
 
 # Python
 __pycache__/

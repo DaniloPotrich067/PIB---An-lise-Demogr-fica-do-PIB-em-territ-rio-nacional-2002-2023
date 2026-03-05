@@ -11,7 +11,7 @@ ensure_ui_in_path()
 apply_style()
 
 pg = st.navigation([
-    st.Page("PÁGINAS/00_Extrair.py",   title="Extrair",       icon=":material/info:"),
+    # st.Page("PÁGINAS/00_Extrair.py",   title="Extrair",       icon=":material/info:"),
     st.Page("PÁGINAS/01_Dashboard.py",    title="Dashboard",        icon=":material/dashboard:"),
     st.Page("PÁGINAS/02_Temporal.py",     title="Análise Temporal", icon=":material/timeline:"),
     st.Page("PÁGINAS/03_Composicao.py",   title="Composição",       icon=":material/donut_small:"),
